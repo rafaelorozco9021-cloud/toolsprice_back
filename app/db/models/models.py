@@ -7,7 +7,7 @@ Base = declarative_base()
 
 
 class User(Base):
-    __tablename__ = "users"
+    __tablename__ = "toolsprice_users"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
@@ -23,7 +23,7 @@ class User(Base):
 
 
 class Product(Base):
-    __tablename__ = "products"
+    __tablename__ = "toolsprice_products"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"))
@@ -45,7 +45,7 @@ class Product(Base):
 
 
 class Budget(Base):
-    __tablename__ = "budgets"
+    __tablename__ = "toolsprice_budgets"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
@@ -64,7 +64,7 @@ class Budget(Base):
 
 
 class BudgetItem(Base):
-    __tablename__ = "budget_items"
+    __tablename__ = "toolsprice_budget_items"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     budget_id = Column(String(36), ForeignKey("budgets.id"), nullable=False)
@@ -80,7 +80,7 @@ class BudgetItem(Base):
 
 
 class ScrapingLog(Base):
-    __tablename__ = "scraping_logs"
+    __tablename__ = "toolsprice_scraping_logs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     tienda = Column(String(255), nullable=False)
