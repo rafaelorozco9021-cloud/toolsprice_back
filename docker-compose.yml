@@ -19,7 +19,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgresql://toolsprece:toolsprece@db:5432/toolsprece

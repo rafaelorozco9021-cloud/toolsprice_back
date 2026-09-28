@@ -1,9 +1,3 @@
-from sqlalchemy.ext.asyncio import create_async_engine
+from app.db.session import engine
 
-engine = create_async_engine(
-    "postgresql+asyncpg://toolsprece:toolsprece@db/toolsprece",
-    echo=False,
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=3600,
-)
+__all__ = ["engine"]

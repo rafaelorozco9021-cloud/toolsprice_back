@@ -89,7 +89,7 @@ async def login(
 
 
 @router.get("/verify")
-async def verify_email(token: str):
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
         user_id = payload.get("user_id")

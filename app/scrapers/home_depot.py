@@ -1,4 +1,6 @@
 from app.schemas.product import ProductSchema
+from app.scrapers.base_scraper import BaseScraper
+
 
 class StoreScraper(BaseScraper):
     @property
@@ -6,11 +8,7 @@ class StoreScraper(BaseScraper):
         return "Home Depot"
 
     async def search(self, query: str):
-        # Implement scraping logic for Home Depot
-        pass
+        raise NotImplementedError
 
     async def get_product_details(self, url: str):
-        # Implement scraping logic for Home Depot
-        pass
-
-```
+        raise NotImplementedError

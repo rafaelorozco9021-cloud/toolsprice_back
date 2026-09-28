@@ -26,7 +26,7 @@ class Product(Base):
     __tablename__ = "toolsprice_products"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"))
+    user_id = Column(String(36), ForeignKey("toolsprice_users.id"))
     nombre = Column(String(255), nullable=False)
     categoria = Column(String(255))
     precio = Column(Float, nullable=False)
@@ -48,7 +48,7 @@ class Budget(Base):
     __tablename__ = "toolsprice_budgets"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("toolsprice_users.id"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text)
     budget_type = Column(String(50), default="construccion")
@@ -67,8 +67,8 @@ class BudgetItem(Base):
     __tablename__ = "toolsprice_budget_items"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    budget_id = Column(String(36), ForeignKey("budgets.id"), nullable=False)
-    product_id = Column(String(36), ForeignKey("products.id"))
+    budget_id = Column(String(36), ForeignKey("toolsprice_budgets.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("toolsprice_products.id"))
     product_name = Column(String(255), nullable=False)
     quantity = Column(Integer, default=1)
     unit_price = Column(Float, nullable=False)
