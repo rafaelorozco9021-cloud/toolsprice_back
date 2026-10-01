@@ -87,9 +87,20 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
         async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, headers=self._headers()) as c:
             r = await c.get(url)
             r.raise_for_status()
-            # rate limiting amable
-            await asyncio.sleep(0.8)
             return r.text
+
+    async def _fetch_many(self, urls: list[str], timeout: int = 20) -> list[str]:
+        import httpx
+        headers = self._headers()
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, headers=headers) as c:
+            sem = asyncio.Semaphore(3)
+            async def _get(u: str) -> str:
+                async with sem:
+                    r = await c.get(u)
+                    r.raise_for_status()
+                    await asyncio.sleep(0.3)
+                    return r.text
+            return await asyncio.gather(*[_get(u) for u in urls], return_exceptions=True)
 
     def _parse_ldjson_search(self, html: str, categoria_hint: str = "Materiales de Construcción") -> List[Dict[str, Any]]:
         soup = BeautifulSoup(html, "html.parser")
@@ -267,9 +278,12 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
 
         all_products: List[Dict[str, Any]] = []
         seen = set()
-        for url, label in urls_with_label:
+        results = await self._fetch_many([url for url, _ in urls_with_label])
+        for (url, label), html in zip(urls_with_label, results):
+            if isinstance(html, Exception):
+                print(f"[Homecenter] search fail {url}: {html}")
+                continue
             try:
-                html = await self._fetch(url)
                 products = self._parse_ldjson_search(html, categoria_hint=label)
                 for p in products:
                     key = p.get("url_producto")
@@ -278,7 +292,6 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
                     seen.add(key)
                     text = f"{p['nombre']} {p['marca']} {p['categoria']}".lower()
                     matched = sum(1 for tok in tokens if tok in text)
-                    # requerir al menos 1 token exacto; descartar productos sin ningún token (evita "Alambre" para "brocha")
                     if matched == 0:
                         continue
                     score = fuzz.partial_ratio(qlow, text)
@@ -295,24 +308,8 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
         return all_products[:24]
 
     async def search_all_categories(self, query: str) -> List[Dict[str, Any]]:
-        """Busca en las 5 categorías y agrega resultados para cobertura total."""
-        tasks = [self.search(query, cat) for cat in ["construccion", "soldadura", "pintura", "plomeria", "herramientas"]]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        merged: List[Dict[str, Any]] = []
-        seen = set()
-        for res in results:
-            if isinstance(res, list):
-                for p in res:
-                    key = p.get("url_producto")
-                    if key not in seen:
-                        seen.add(key)
-                        merged.append(p)
-        # también búsqueda directa sin categoría
-        direct = await self.search(query)
-        for p in direct:
-            if p.get("url_producto") not in seen:
-                merged.append(p)
-        return merged[:24]
+        """Busca en todas las categorías en paralelo."""
+        return await self.search(query)
 
     async def get_product_details(self, url: str) -> Dict[str, Any]:
         try:
