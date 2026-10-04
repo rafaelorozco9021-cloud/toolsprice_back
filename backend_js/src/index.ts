@@ -1,9 +1,13 @@
 import Fastify from 'fastify';
 import { HomecenterScraper } from './scrapers/HomecenterScraper';
+import { authRoutes } from './routes/auth';
 import { Product } from './types/product';
 
 const fastify = Fastify({ logger: true });
 const homecenter = new HomecenterScraper();
+
+// Registrar Rutas de Autenticación
+fastify.register(authRoutes, { prefix: '/api/auth' });
 
 fastify.get('/products/search', async (request, reply) => {
   const { query } = request.query as { query: string };
@@ -12,7 +16,6 @@ fastify.get('/products/search', async (request, reply) => {
     return reply.status(400).send({ error: 'Query is required' });
   }
 
-  // Ejecutamos el scraping optimizado
   const products = await homecenter.search(query);
   
   return {
@@ -40,3 +43,4 @@ const start = async () => {
 };
 
 start();
+
