@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { BaseScraper } from './BaseScraper';
 import { Product } from '../types/product';
+import { cacheGet, cacheSet } from '../services/cache';
 
 export class HomecenterScraper extends BaseScraper {
   readonly name = 'Homecenter';
@@ -13,19 +14,22 @@ export class HomecenterScraper extends BaseScraper {
   };
 
   async search(query: string, categoria?: string): Promise<Product[]> {
+    const cacheKey = `search:homecenter:${query}:${categoria || 'all'}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) return cached;
+
     const searchUrl = `${this.baseUrl}/homecenter-co/search/?Ntt=${encodeURIComponent(query)}`;
     
     try {
-      const { data: html } = await axios.get(searchUrl, { headers: this.headers, timeout: 10000 });
+      const { data: html } = await axios.get(searchUrl, { headers: this.headers, timeout: 8000 });
       
-      // OPTIMIZACIÓN: Intentar extraer de __NEXT_DATA__ primero (VELOCIDAD EXTREMA)
       const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
       if (nextDataMatch && nextDataMatch[1]) {
         const json = JSON.parse(nextDataMatch[1]);
         const results = json?.props?.pageProps?.searchProps?.searchData?.results || [];
         
         if (results.length > 0) {
-          return results.slice(0, 24).map((item: any) => {
+          const products = results.slice(0, 24).map((item: any) => {
             const prices = item.prices || [];
             const price = prices[0]?.priceWithoutFormatting || 0;
             const media = item.media || {};
@@ -43,10 +47,12 @@ export class HomecenterScraper extends BaseScraper {
               caracteristicas: { sku },
             });
           });
+          
+          await cacheSet(cacheKey, products, 3600); // Cache por 1 hora
+          return products;
         }
       }
 
-      // Fallback a Cheerio si JSON falla
       const $ = cheerio.load(html);
       const products: Product[] = [];
       
@@ -67,7 +73,9 @@ export class HomecenterScraper extends BaseScraper {
         }
       });
 
-      return products.slice(0, 24);
+      const result = products.slice(0, 24);
+      await cacheSet(cacheKey, result, 3600);
+      return result;
     } catch (error) {
       console.error(`[HomecenterScraper] Search error: ${error}`);
       return [];
@@ -75,8 +83,12 @@ export class HomecenterScraper extends BaseScraper {
   }
 
   async getProductDetails(url: string): Promise<Product | null> {
+    const cacheKey = `details:homecenter:${url}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) return cached;
+
     try {
-      const { data: html } = await axios.get(url, { headers: this.headers, timeout: 10000 });
+      const { data: html } = await axios.get(url, { headers: this.headers, timeout: 8000 });
       const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
       
       if (nextDataMatch && nextDataMatch[1]) {
@@ -84,7 +96,7 @@ export class HomecenterScraper extends BaseScraper {
         const productData = json?.props?.pageProps?.productProps?.result || json?.props?.pageProps?.initialData?.product;
         
         if (productData) {
-          return this.normalizeProduct({
+          const product = this.normalizeProduct({
             nombre: productData.name,
             precio: productData.price || productData.currentPrice || 0,
             marca: productData.brand,
@@ -92,6 +104,8 @@ export class HomecenterScraper extends BaseScraper {
             urlProducto: url,
             imagenUrl: productData.image || '',
           });
+          await cacheSet(cacheKey, product, 86400); // Cache por 24 horas
+          return product;
         }
       }
       return null;
