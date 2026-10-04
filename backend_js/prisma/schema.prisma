@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String @id @default(uuid())
+  email    String @unique
+  password String
+  name     String?
+  createdAt DateTime @default(now())
+}
+
+model Product {
+  id              String   @id @default(uuid())
+  nombre          String
+  categoria       String
+  precio          Float
+  moneda          String   @default("COP")
+  unidadMedida    String    @default("unidad")
+  marca           String?
+  caracteristicas Json
+  urlProducto     String   @unique
+  imagenUrl       String?
+  tienda          String
+  disponibilidad  Boolean  @default(true)
+  fechaActualizacion DateTime @default(now())
+}
+
+model Labor {
+  id          String   @id @default(uuid())
+  nombre      String
+  descripcion String?
+  precio      Float
+  unidad      String
+  createdAt   DateTime @default(now())
+}
+
+model Budget {
+  id        String   @id @default(uuid())
+  userId    String
+  nombre    String
+  total     Float    @default(0)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
