@@ -25,6 +25,12 @@ def verify_password(plain_password: str, hashed_password: str):
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    name = (user.name or "").strip()
+    if len(name) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El nombre es obligatorio (mínimo 2 caracteres)"
+        )
     if user.password != user.password_confirm:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -39,7 +45,7 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         )
 
     db_user = User(
-        name=user.name,
+        name=name,
         email=user.email,
         password_hash=get_password_hash(user.password),
         email_verified=True,
@@ -84,7 +90,35 @@ async def login(
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
-        token_type="bearer"
+        token_type="bearer",
+        name=user.name,
+        email=user.email,
+    )
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(
+    credentials = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)),
+    db: AsyncSession = Depends(get_db),
+):
+    # Acepta Bearer por header Authorization
+    from fastapi import Request
+    # OAuth2PasswordBearer ya extrae el token si viene; si no, error 401
+    token = credentials
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    data = verify_token(token)
+    if not data:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    result = await db.execute(select(User).filter(User.id == data.get("sub")))
+    db_user = result.scalars().first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserResponse(
+        id=db_user.id,
+        name=db_user.name,
+        email=db_user.email,
+        created_at=db_user.created_at.isoformat() if db_user.created_at else "",
     )
 
 

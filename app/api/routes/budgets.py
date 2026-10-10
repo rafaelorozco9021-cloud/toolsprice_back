@@ -193,7 +193,19 @@ async def export_pdf(
         raise HTTPException(status_code=404, detail="Budget not found")
 
     items = budget.__dict__.get("items", [])
-    pdf_bytes = generate_budget_pdf(budget, items)
+
+    # Nombre del usuario para la firma del PDF
+    preparador_name = None
+    try:
+        from app.db.models.models import User
+        r = await db.execute(select(User).filter(User.id == budget.user_id))
+        owner = r.scalars().first()
+        if owner and getattr(owner, "name", None):
+            preparador_name = owner.name
+    except Exception:
+        preparador_name = None
+
+    pdf_bytes = generate_budget_pdf(budget, items, preparador_name=preparador_name)
 
     return Response(
         content=pdf_bytes,
