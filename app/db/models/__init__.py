@@ -4,4 +4,5 @@ from app.db.models.models import (
     Budget,
     BudgetItem,
     ScrapingLog,
+    SearchLog,
 )

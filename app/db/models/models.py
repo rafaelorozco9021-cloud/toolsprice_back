@@ -89,3 +89,13 @@ class ScrapingLog(Base):
     error_message = Column(Text)
     duration_ms = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SearchLog(Base):
+    """Una fila por búsqueda hecha desde web o mobile. Sirve para 'lo más buscado' del landing."""
+    __tablename__ = "toolsprice_search_logs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    query = Column(String(120), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("toolsprice_users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

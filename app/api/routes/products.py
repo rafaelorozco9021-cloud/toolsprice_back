@@ -1,14 +1,48 @@
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, Request
 from app.services.product_service import search_products, compare_products, get_product
 from app.db.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any
 import asyncio
+import re
 
 router = APIRouter(prefix="/products", tags=["products"])
 
+
+def _norm_query(q: str) -> str:
+    q = (q or "").strip().lower()
+    q = re.sub(r"\s+", " ", q)
+    return q[:120]
+
+
+async def _log_search(request: Request, query: str):
+    """Guarda la búsqueda para 'lo más buscado'. Sesión propia, nunca rompe la búsqueda."""
+    try:
+        q = _norm_query(query)
+        if len(q) < 2:
+            return
+        user_id = None
+        try:
+            auth = request.headers.get("Authorization") or ""
+            if auth.startswith("Bearer "):
+                from app.core.security import verify_token
+                payload = verify_token(auth.split(" ", 1)[1])
+                if payload:
+                    user_id = payload.get("sub")
+        except Exception:
+            pass
+        from app.db.models.models import SearchLog
+        from app.db.session import async_session_factory
+        async with async_session_factory() as session:
+            session.add(SearchLog(query=q, user_id=user_id))
+            await session.commit()
+    except Exception:
+        pass
+
+
 @router.get("/search")
 async def search_products_endpoint(
+    request: Request,
     query: str = Query(...),
     store: str | None = None,
     categoria: str | None = Query(None, description="construccion|soldadura|pintura|plomeria"),
@@ -18,6 +52,7 @@ async def search_products_endpoint(
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
 ):
+    asyncio.create_task(_log_search(request, query))
     result = await search_products(db, query, store, min_price, max_price, page, limit)
     # Homecenter único scraper — multicategoría: busca en TODAS las categorías (construcción, soldadura, pintura, plomería, herramientas)
     # Eliminamos filtro por categoría: siempre busca en todas para que "tubo pvc" encuentre aunque esté en plomería

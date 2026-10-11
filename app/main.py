@@ -5,6 +5,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.products import router as products_router
 from app.api.routes.budgets import router as budgets_router
 from app.api.routes.labor import router as labor_router
+from app.api.routes.stats import router as stats_router
 from app.core.config import settings
 from app.db.session import init_db
 
@@ -38,6 +39,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
 app.include_router(budgets_router, prefix="/api")
 app.include_router(labor_router, prefix="/api")
+app.include_router(stats_router, prefix="/api")
 
 
 @app.on_event("startup")
