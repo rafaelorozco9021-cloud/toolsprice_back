@@ -155,8 +155,12 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
     raise ValueError("La IA no devolvió un análisis válido, intenta de nuevo")
 
 
-# Densidad aparente (kg/m³) para convertir m³ a bultos cuando el producto
-# se vende empacado. Ej: 4.16 m³ de arena ≈ 156 bultos de 40 kg.
+# Bultos de 40 kg por m³ según práctica de obra (regla del maestro).
+# Ej: 3 m³ de gravilla = 200 bultos. Para el resto se usa densidad.
+BULTOS_POR_M3 = (
+    ("gravilla", 200.0 / 3.0),
+    ("grava", 200.0 / 3.0),
+)
 DENSIDAD_KG_M3 = (
     ("grava", 1600.0), ("gravilla", 1600.0), ("triturado", 1600.0),
     ("piedra", 1600.0), ("recebo", 1700.0), ("balastro", 1700.0),
@@ -180,19 +184,28 @@ def _a_bultos(m: Dict[str, Any]) -> Dict[str, Any]:
     if pack_kg <= 0:
         return m
     q = str(m.get("nombre_busqueda", "")).lower()
-    dens = 1500.0
-    for kw, d in DENSIDAD_KG_M3:
-        if kw in q:
-            dens = d
-            break
     m3 = float(m.get("cantidad", 0) or 0)
-    bultos = math.ceil(m3 * dens / pack_kg)
+    # Regla del maestro (bultos por m³) tiene prioridad sobre densidad
+    bultos = None
+    for kw, ratio in BULTOS_POR_M3:
+        if kw in q:
+            bultos = math.ceil(m3 * ratio)
+            base_txt = f"{m3} m³ a {ratio:.1f} bultos/m³"
+            break
+    if bultos is None:
+        dens = 1500.0
+        for kw, d in DENSIDAD_KG_M3:
+            if kw in q:
+                dens = d
+                break
+        bultos = math.ceil(m3 * dens / pack_kg)
+        base_txt = f"{m3} m³"
     m = dict(m)
     pack_txt = str(int(pack_kg) if pack_kg == int(pack_kg) else pack_kg)
     m["cantidad"] = float(bultos)
     m["unidad"] = f"bulto {pack_txt}kg"
-    m["nota"] = (f"{m3} m³ ≈ {bultos} bultos de {pack_txt} kg. "
-                 "En obra suele pedirse por m³ (volqueta): verifica ese precio.")
+    m["nota"] = (f"{base_txt} ≈ {bultos} bultos de {pack_txt} kg. "
+                 "Si la pides por volqueta, edita cantidad y precio.")
     m["subtotal"] = round(float(m.get("precio", 0) or 0) * bultos, 2)
     m["aviso_granel"] = True
     return m
