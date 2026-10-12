@@ -57,6 +57,15 @@ async def get_db() -> AsyncSession:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migración ligera: create_all no agrega columnas a tablas existentes
+        try:
+            from sqlalchemy import text
+            await conn.execute(text(
+                "ALTER TABLE toolsprice_budget_items "
+                "ADD COLUMN IF NOT EXISTS seccion VARCHAR(20) DEFAULT 'materiales'"
+            ))
+        except Exception as e:
+            print(f"Migration warning: {e}")
     # seed mock products if empty
     try:
         from app.db.models.models import Product

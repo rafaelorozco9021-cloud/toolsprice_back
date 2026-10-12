@@ -110,53 +110,84 @@ def generate_budget_pdf(budget, items: list[dict], preparador_name: str | None =
         elements.append(Paragraph(budget.description, desc_style))
         elements.append(Spacer(1, 6))
 
-    # --- TABLA PRODUCTOS ---
-    data = [[
-        Paragraph('<b><font color="white">Producto</font></b>', styles['Normal']),
-        Paragraph('<b><font color="white">Cant.</font></b>', styles['Normal']),
-        Paragraph('<b><font color="white">P. Unit.</font></b>', styles['Normal']),
-        Paragraph('<b><font color="white">Subtotal</font></b>', styles['Normal']),
-    ]]
-    for item in items:
+    # --- TABLAS POR SECCIÓN: 1. MATERIALES / 2. MANO DE OBRA ---
+    # Ítems viejos (sin seccion) caen en Materiales automáticamente
+    def _sec(item):
+        if isinstance(item, dict):
+            s = item.get("seccion", "materiales")
+        else:
+            s = getattr(item, "seccion", "materiales") or "materiales"
+        return "mano_obra" if s == "mano_obra" else "materiales"
+
+    def _vals(item):
         if isinstance(item, dict):
             pn = item.get("product_name", "")
             qty = item.get("quantity", 1)
             up = item.get("unit_price", 0)
-            tp = item.get("total_price", float(up) * int(qty))
+            tp = item.get("total_price", float(up or 0) * int(qty or 0))
         else:
             pn = getattr(item, "product_name", "")
             qty = getattr(item, "quantity", 1)
             up = getattr(item, "unit_price", 0)
-            tp = getattr(item, "total_price", float(up) * int(qty))
-        # escapar html
-        pn_esc = pn.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:55]
-        data.append([
-            Paragraph(f'<font size=8>{pn_esc}</font>', ParagraphStyle('cell', parent=styles['Normal'], fontSize=8, leading=10)),
-            Paragraph(f'<font size=8>{qty}</font>', ParagraphStyle('cellC', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER)),
-            Paragraph(f'<font size=8>{_fmt_cop(float(up))}</font>', ParagraphStyle('cellR', parent=styles['Normal'], fontSize=8, alignment=TA_RIGHT)),
-            Paragraph(f'<font size=8><b>{_fmt_cop(float(tp))}</b></font>', ParagraphStyle('cellR', parent=styles['Normal'], fontSize=8, alignment=TA_RIGHT)),
-        ])
+            tp = getattr(item, "total_price", float(up or 0) * int(qty or 0))
+        return pn, qty, float(up or 0), float(tp or 0)
 
-    col_widths = [3.4*inch, 0.7*inch, 1.4*inch, 1.4*inch]
-    table = Table(data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('TOPPADDING', (0, 0), (-1, 0), 8),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        ('TOPPADDING', (0,1), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,1), (-1,-1), 6),
-    ]))
-    elements.append(table)
-    elements.append(Spacer(1, 14))
+    def _tabla(items_sec, titulo, color):
+        sec_style = ParagraphStyle('SecTitle', parent=styles['Normal'], fontSize=11,
+                                   leading=13, textColor=colors.HexColor(color),
+                                   fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=6)
+        elements.append(Paragraph(titulo, sec_style))
+        data = [[
+            Paragraph('<b><font color="white">Producto</font></b>', styles['Normal']),
+            Paragraph('<b><font color="white">Cant.</font></b>', styles['Normal']),
+            Paragraph('<b><font color="white">P. Unit.</font></b>', styles['Normal']),
+            Paragraph('<b><font color="white">Subtotal</font></b>', styles['Normal']),
+        ]]
+        for item in items_sec:
+            pn, qty, up, tp = _vals(item)
+            # escapar html
+            pn_esc = str(pn).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:55]
+            data.append([
+                Paragraph(f'<font size=8>{pn_esc}</font>', ParagraphStyle('cell', parent=styles['Normal'], fontSize=8, leading=10)),
+                Paragraph(f'<font size=8>{qty}</font>', ParagraphStyle('cellC', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER)),
+                Paragraph(f'<font size=8>{_fmt_cop(up)}</font>', ParagraphStyle('cellR', parent=styles['Normal'], fontSize=8, alignment=TA_RIGHT)),
+                Paragraph(f'<font size=8><b>{_fmt_cop(tp)}</b></font>', ParagraphStyle('cellR', parent=styles['Normal'], fontSize=8, alignment=TA_RIGHT)),
+            ])
+        col_widths = [3.4*inch, 0.7*inch, 1.4*inch, 1.4*inch]
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(color)),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E5E7EB')),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,1), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,1), (-1,-1), 6),
+        ]))
+        elements.append(table)
+        sub = sum(_vals(i)[3] for i in items_sec)
+        sub_style = ParagraphStyle('SecSub', parent=styles['Normal'], fontSize=9,
+                                   alignment=TA_RIGHT, spaceBefore=4, spaceAfter=8)
+        elements.append(Paragraph(f'Subtotal: <b>{_fmt_cop(sub)}</b>', sub_style))
+        return sub
+
+    mats = [i for i in items if _sec(i) == "materiales"]
+    mos = [i for i in items if _sec(i) == "mano_obra"]
+    if mos:
+        # Presupuesto unificado: dos secciones
+        _tabla(mats, "1 · Materiales", "#4F46E5")
+        _tabla(mos, "2 · Mano de obra", "#EA580C")
+    else:
+        # Presupuesto clásico solo de materiales: igual que antes
+        _tabla(mats, "Materiales", "#4F46E5")
+    elements.append(Spacer(1, 6))
 
     # --- TOTALES alineados a la derecha ---
     totals_data = [

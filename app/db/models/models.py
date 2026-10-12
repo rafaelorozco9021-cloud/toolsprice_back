@@ -73,6 +73,8 @@ class BudgetItem(Base):
     quantity = Column(Integer, default=1)
     unit_price = Column(Float, nullable=False)
     total_price = Column(Float, nullable=False)
+    # 'materiales' | 'mano_obra' — para el PDF unificado de 2 secciones
+    seccion = Column(String(20), default="materiales")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     budget = relationship("Budget", back_populates="items")

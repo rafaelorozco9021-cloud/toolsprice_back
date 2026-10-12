@@ -8,6 +8,7 @@ class BudgetItem(BaseModel):
     quantity: int = 1
     unit_price: float
     total_price: float
+    seccion: str = "materiales"
 
 
 from typing import Literal

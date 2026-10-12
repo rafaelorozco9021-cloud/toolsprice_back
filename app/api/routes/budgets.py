@@ -114,7 +114,7 @@ async def get_budget_endpoint(
         "total": budget.total,
         "status": budget.status,
         "created_at": budget.created_at.isoformat(),
-        "items": [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price, "product_id": i.product_id} for i in items],
+        "items": [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price, "product_id": i.product_id, "seccion": getattr(i, "seccion", None) or "materiales"} for i in items],
     }
 
 
@@ -139,7 +139,7 @@ async def update_budget_endpoint(
         "total": updated.total,
         "status": updated.status,
         "created_at": updated.created_at.isoformat(),
-        "items": [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price} for i in items],
+        "items": [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price, "seccion": getattr(i, "seccion", None) or "materiales"} for i in items],
     }
 
 

@@ -29,13 +29,17 @@ async def create_budget(db: AsyncSession, user_id: str, items: list, tax_rate: f
     await db.refresh(budget)
 
     for item in items:
+        sec = _get(item, "seccion", None) or "materiales"
+        if sec not in ("materiales", "mano_obra"):
+            sec = "materiales"
         budget_item = BudgetItem(
             budget_id=budget.id,
             product_id=_get(item, "product_id"),
             product_name=_get(item, "product_name", ""),
             quantity=int(_get(item, "quantity", 1)),
             unit_price=float(_get(item, "unit_price", 0)),
-            total_price=float(_get(item, "unit_price", 0)) * int(_get(item, "quantity", 1))
+            total_price=float(_get(item, "unit_price", 0)) * int(_get(item, "quantity", 1)),
+            seccion=sec,
         )
         db.add(budget_item)
 
@@ -92,13 +96,17 @@ async def update_budget(db: AsyncSession, budget_id: str, user_id: str, items: l
     await db.flush()
 
     for it in items:
+        sec = _get(it, "seccion", None) or "materiales"
+        if sec not in ("materiales", "mano_obra"):
+            sec = "materiales"
         bi = BudgetItem(
             budget_id=budget.id,
             product_id=_get(it, "product_id"),
             product_name=_get(it, "product_name", ""),
             quantity=int(_get(it, "quantity", 1)),
             unit_price=float(_get(it, "unit_price", 0)),
-            total_price=float(_get(it, "unit_price", 0)) * int(_get(it, "quantity", 1))
+            total_price=float(_get(it, "unit_price", 0)) * int(_get(it, "quantity", 1)),
+            seccion=sec,
         )
         db.add(bi)
     await db.commit()
@@ -113,8 +121,8 @@ async def duplicate_budget(db: AsyncSession, budget_id: str, user_id: str):
     if not orig or orig.user_id != user_id:
         return None
     items = orig.__dict__.get("items", [])
-    # convertir a dicts para create
-    dict_items = [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price, "product_id": i.product_id} for i in items]
+    # convertir a dicts para create (preservando sección del PDF unificado)
+    dict_items = [{"product_name": i.product_name, "quantity": i.quantity, "unit_price": i.unit_price, "total_price": i.total_price, "product_id": i.product_id, "seccion": getattr(i, "seccion", None) or "materiales"} for i in items]
     return await create_budget(db, user_id, dict_items, tax_rate=0.16, budget_type=orig.budget_type, name=orig.name + " (copia)")
 
 
