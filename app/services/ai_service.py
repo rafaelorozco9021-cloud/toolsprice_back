@@ -18,36 +18,36 @@ SYSTEM_PROMPT = """Eres un maestro de obra colombiano con 20 años de experienci
 pintura, plomería, soldadura y remodelación. Analizas la descripción de una obra
 y devuelves ÚNICAMENTE un JSON válido, sin texto antes ni después, sin markdown.
 
-Reglas de cálculo (Colombia):
-- Mampostería bloque #4 (10x20x40 cm): 14 bloques por m² + 8% de desperdicio.
-- Mortero de pega 1:4: 1 bulto de cemento gris x 50 kg rinde ~4 m² de muro.
-- Arena lavada: 0.08 m³ por m² de muro.
+Reglas de identificación (tú NO calculas cantidades de materiales: el sistema
+usa tabla fija de dosificación. Tú solo identificas el oficio y las medidas):
+- "obra_tipo_clave": UNA de muro_bloque | alistado | friso | pintura |
+  piso_ceramica | general. "Plantilla" = alistado (mortero de nivelación, NO
+  cerámica salvo que la pidan). Muro/ladrillo/bloque = muro_bloque. Pintar =
+  pintura. Enchape/cerámica/porcelanato = piso_ceramica. Pañete/friso/revoque
+  = friso. Si no encaja en ninguno, usa "general".
+- "area_m2": área total en m² (ancho × alto/largo).
+- "espesor_m": SOLO para alistado si lo mencionan (ej 4 cm → 0.04). Si no lo
+  dicen, omítelo (se asume 4 cm).
+- "materiales": lista con "nombre_busqueda" corto (1-3 palabras) y "nota" de
+  uso. La cantidad la calcula el sistema: pon 0. SOLO si el tipo es "general"
+  estima tú cantidades razonables (esas sí se usan directo).
 - Acero/varilla: solo si la obra lo exige (columnas, vigas, zapatas); para un
-  muro simple divisorio NO incluyas varilla, indica por qué en "nota".
-- Pintura vinilo: 1 galón rinde ~25 m² a 2 manos + 10% desperdicio.
-- Piso cerámico: m² + 10% por cortes y desperdicio; pegante 1 bulto x 25 kg
-  rinde ~5 m²; fragua (boquilla) 1 kg rinde ~8 m².
-- Friso/pañete: 1 bulto de cemento rinde ~3 m² a 1 cm de espesor.
-- "Plantilla" en Colombia = capa de mortero de nivelación/limpieza (NO cerámica
-  salvo que la pidan): materiales cemento + arena lavada; mano de obra del
-  tabulador con query "alistado" o "contrapiso".
-- Redondea cantidades hacia arriba a valores comprables (medios bultos, m³ a 0.25).
-- "nombre_busqueda" debe ser corto (1-3 palabras) para buscar en tienda:
-  ej "bloque 4", "cemento gris", "arena lavada", "pintura vinilo".
-- "query_tabulador" debe coincidir con oficios del tabulador: muro bloque,
-  friso, pintura, piso ceramica, enchape, plomeria, electrico, soldadura.
+  muro simple divisorio NO la incluyas, indica por qué en "nota".
+- "query_tabulador": oficio del tabulador (muro bloque, alistado, friso,
+  pintura, piso ceramica, enchape, plomeria, electrico, soldadura).
 - "cantidad" de mano de obra = área en la unidad del oficio (m², punto, ml).
-- NUNCA inventes precios. Solo nombres, cantidades y notas.
+- NUNCA inventes precios. Solo identificación, medidas y notas.
 - Si la descripción no trae medidas, estima lo mínimo razonable y pon
   "confianza": "baja"; si trae medidas claras, "confianza": "alta".
 
 Formato EXACTO de respuesta (JSON):
 {
-  "obra": {"tipo": "Mampostería", "descripcion": "...", "area_m2": 7.5,
+  "obra": {"tipo": "Mampostería", "obra_tipo_clave": "muro_bloque",
+           "descripcion": "...", "area_m2": 7.5, "espesor_m": null,
            "medidas_usadas": "3.00 m de ancho x 2.50 m de alto", "confianza": "alta"},
   "materiales": [
-    {"nombre_busqueda": "bloque 4", "cantidad": 114, "unidad": "unidad",
-     "nota": "14 bloques/m² + 8% desperdicio"}
+    {"nombre_busqueda": "bloque 4", "cantidad": 0, "unidad": "unidad",
+     "nota": "Muro bloque #4"}
   ],
   "mano_de_obra": [
     {"query_tabulador": "muro bloque", "cantidad": 7.5, "unidad": "m²",
@@ -245,6 +245,25 @@ async def analizar_obra(descripcion: str, tax_rate: float = 0.16) -> Dict[str, A
     materiales_ai: List[Dict[str, Any]] = ai.get("materiales", []) or []
     mano_ai: List[Dict[str, Any]] = ai.get("mano_de_obra", []) or []
 
+    # Cantidades por TABLA fija cuando se reconoce el oficio; la IA solo
+    # identifica y mide. Si el oficio es desconocido ("general"), se usan
+    # las cantidades estimadas por la IA.
+    from app.services.dosificaciones import calcular_materiales, TIPOS
+    tipo = str(obra.get("obra_tipo_clave", "general") or "general").strip().lower()
+    area = obra.get("area_m2")
+    try:
+        area_f = float(area) if area is not None else 0.0
+    except (TypeError, ValueError):
+        area_f = 0.0
+    espesor = obra.get("espesor_m")
+    try:
+        espesor_f = float(espesor) if espesor is not None else None
+    except (TypeError, ValueError):
+        espesor_f = None
+    tabla_notas: list[str] = []
+    if tipo in TIPOS and tipo != "general" and area_f > 0:
+        materiales_ai, tabla_notas = calcular_materiales(tipo, area_f, espesor_f)
+
     # Precios reales en paralelo (máx 4 búsquedas simultáneas)
     sem = asyncio.Semaphore(4)
 
@@ -301,6 +320,19 @@ async def analizar_obra(descripcion: str, tax_rate: float = 0.16) -> Dict[str, A
     tax = round(subtotal * tax_rate, 2)
 
     advertencias = []
+    advertencias.extend(tabla_notas)
+    # La arena/grava se calcula en m³ pero en Homecenter se vende por bulto:
+    # avisar para que el maestro la pida por volqueta con su proveedor
+    for m in materiales:
+        if m["unidad"] in ("m³", "m3") and m["encontrado"]:
+            nom = str(m["nombre"]).lower()
+            if any(k in nom for k in ("kg", "bulto", "bolsa", "saco", "40kg", "40 kg")):
+                advertencias.append(
+                    f"OJO con '{m['nombre_busqueda']}': la necesitas en m³ pero "
+                    "Homecenter la vende por bulto. En obra se pide por m³ "
+                    "(volqueta) con el proveedor: verifica ese precio."
+                )
+                break
     sin_precio = [m["nombre_busqueda"] for m in materiales if not m["encontrado"]]
     if sin_precio:
         advertencias.append(

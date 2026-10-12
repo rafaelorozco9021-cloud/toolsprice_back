@@ -22,8 +22,10 @@ class ManoObraSugerida(BaseModel):
 
 class ObraDetectada(BaseModel):
     tipo: str = "General"
+    obra_tipo_clave: str = "general"
     descripcion: str = ""
     area_m2: Optional[float] = None
+    espesor_m: Optional[float] = None
     medidas_usadas: str = ""
     confianza: str = "media"
 
