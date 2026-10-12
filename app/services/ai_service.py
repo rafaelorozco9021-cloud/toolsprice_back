@@ -98,6 +98,8 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
         r = await client.post(OPENROUTER_URL, json=payload, headers=headers)
         if r.status_code == 401:
             raise ValueError("API key del modelo inválida o sin saldo")
+        if r.status_code == 402:
+            raise ValueError("La cuenta del modelo no tiene saldo. Recarga en openrouter.ai")
         if r.status_code == 429:
             raise ValueError("Límite del modelo alcanzado, intenta en un minuto")
         r.raise_for_status()
