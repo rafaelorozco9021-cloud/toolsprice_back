@@ -24,7 +24,8 @@ usa tabla fija de dosificación. Tú solo identificas el oficio y las medidas):
 - "obra_tipo_clave": UNA de muro_bloque | alistado | friso | pintura |
   piso_ceramica | concreto | general. "Plantilla" = alistado (mortero de
   nivelación, NO cerámica salvo que la pidan). Muro/ladrillo/bloque =
-  muro_bloque. Pintar = pintura. Enchape/cerámica/porcelanato = piso_ceramica.
+  muro_bloque. Pintar = pintura ("pintura tipo A" significa Tipo 1: vinilo
+  interior premium a 2 manos; búscala como "pintura vinilo tipo 1"). Enchape/cerámica/porcelanato = piso_ceramica.
   Piso/placa de concreto, losa, contrapiso en concreto = concreto. Pañete/
   friso/revoque = friso. Si no encaja en ninguno, usa "general".
 - Nombres para buscar en Homecenter (úsalos tal cual): el acero es "varilla
