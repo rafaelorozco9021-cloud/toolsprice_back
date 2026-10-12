@@ -42,7 +42,10 @@ engine = create_async_engine(
     echo=False,
     pool_size=10,
     max_overflow=20,
-    pool_recycle=3600,
+    # Render cierra conexiones inactivas sin avisar ("connection is closed").
+    # pre_ping verifica cada conexión antes de usarla y recycle las rota.
+    pool_recycle=300,
+    pool_pre_ping=True,
     connect_args=CONNECT_ARGS,
 )
 
