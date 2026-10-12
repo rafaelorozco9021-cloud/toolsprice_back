@@ -22,20 +22,30 @@ y devuelves ÚNICAMENTE un JSON válido, sin texto antes ni después, sin markdo
 Reglas de identificación (tú NO calculas cantidades de materiales: el sistema
 usa tabla fija de dosificación. Tú solo identificas el oficio y las medidas):
 - "obra_tipo_clave": UNA de muro_bloque | alistado | friso | pintura |
-  piso_ceramica | general. "Plantilla" = alistado (mortero de nivelación, NO
-  cerámica salvo que la pidan). Muro/ladrillo/bloque = muro_bloque. Pintar =
-  pintura. Enchape/cerámica/porcelanato = piso_ceramica. Pañete/friso/revoque
-  = friso. Si no encaja en ninguno, usa "general".
+  piso_ceramica | concreto | general. "Plantilla" = alistado (mortero de
+  nivelación, NO cerámica salvo que la pidan). Muro/ladrillo/bloque =
+  muro_bloque. Pintar = pintura. Enchape/cerámica/porcelanato = piso_ceramica.
+  Piso/placa de concreto, losa, contrapiso en concreto = concreto. Pañete/
+  friso/revoque = friso. Si no encaja en ninguno, usa "general".
+- Nombres para buscar en Homecenter (úsalos tal cual): el acero es "varilla
+  corrugada" (ej "varilla corrugada 1/2" para media, "varilla corrugada 3/4"
+  para tres cuartos; "cabilla" significa lo mismo pero NO lo uses para buscar).
+  La piedra del concreto es "gravilla" (NO "piedra triturada", eso trae piedra
+  decorativa). La malla es "malla electrosoldada".
 - "area_m2": área total en m² (ancho × alto/largo).
 - "espesor_m": SOLO para alistado si lo mencionan (ej 4 cm → 0.04). Si no lo
   dicen, omítelo (se asume 4 cm).
 - "materiales": lista con "nombre_busqueda" corto (1-3 palabras) y "nota" de
   uso. La cantidad la calcula el sistema: pon 0. SOLO si el tipo es "general"
   estima tú cantidades razonables (esas sí se usan directo).
-- Acero/varilla: solo si la obra lo exige (columnas, vigas, zapatas); para un
-  muro simple divisorio NO la incluyas, indica por qué en "nota".
-- "query_tabulador": oficio del tabulador (muro bloque, alistado, friso,
-  pintura, piso ceramica, enchape, plomeria, electrico, soldadura).
+- Acero/varilla: solo si la obra lo exige (concreto, columnas, vigas, zapatas,
+  losas). Para concreto usa "varilla corrugada 1/2" o "malla electrosoldada".
+  Para un muro simple divisorio NO incluyas varilla, indica por qué en "nota".
+- "query_tabulador": oficio del tabulador. Usa ESTOS valores: muro bloque →
+  "muro bloque"; alistado/plantilla → "alistado"; friso → "friso"; pintura →
+  "pintura"; cerámica/porcelanato → "piso ceramica"; concreto/placa/losa →
+  "placa contrapiso"; plomería → "plomeria"; eléctrico → "punto electrico";
+  soldadura → "soldadura".
 - "cantidad" de mano de obra = área en la unidad del oficio (m², punto, ml).
 - NUNCA inventes precios. Solo identificación, medidas y notas.
 - Si la descripción no trae medidas, estima lo mínimo razonable y pon
@@ -312,6 +322,24 @@ async def analizar_obra(descripcion: str, tax_rate: float = 0.16) -> Dict[str, A
         cantidad = max(0.0, float(m.get("cantidad", 0) or 0))
         unidad = str(m.get("unidad", "unidad"))[:20] or "unidad"
         nota = str(m.get("nota", ""))[:200]
+        # Material a granel (arena/gravilla por volqueta): no tiene precio web,
+        # se deja con precio 0 y aviso para cotizar con el proveedor
+        if m.get("granel"):
+            return {
+                "nombre_busqueda": nombre,
+                "nombre": nombre.title() + " (a granel)",
+                "cantidad": cantidad,
+                "unidad": unidad,
+                "nota": nota + " Cotizar por volqueta con el proveedor.",
+                "precio": 0,
+                "moneda": "COP",
+                "marca": "",
+                "imagen_url": "",
+                "url_producto": "",
+                "categoria": "",
+                "encontrado": False,
+                "subtotal": 0,
+            }
         async with sem:
             p = await _precio_homecenter(nombre)
         precio = float(p.get("precio", 0) or 0)

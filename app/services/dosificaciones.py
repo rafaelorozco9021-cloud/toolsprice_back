@@ -13,12 +13,19 @@ CEMENTO_KG_POR_M3 = 350.0
 ARENA_M3_POR_M3 = 1.05
 AGUA_L_POR_M3 = 55.0
 BULTO_KG = 50.0
+# Concreto 1:2:3 (~3000 PSI, pisos/placas): por cada m³ de concreto
+CONC_CEMENTO_KG_M3 = 350.0
+CONC_ARENA_M3_M3 = 0.55
+CONC_GRAVILLA_M3_M3 = 0.85
+MALLA_M2_PANEL = 14.1  # panel 6 x 2.35 m
 
-TIPOS = ("muro_bloque", "alistado", "friso", "pintura", "piso_ceramica", "general")
+TIPOS = ("muro_bloque", "alistado", "friso", "pintura", "piso_ceramica",
+         "concreto", "general")
 
 
 def _ceil2(x: float) -> float:
-    return math.ceil(x * 100) / 100
+    # Techo a 2 decimales, tolerando error de punto flotante (2.42, no 2.43)
+    return math.ceil(x * 100 - 1e-9) / 100
 
 
 def calcular_materiales(obra_tipo: str, area_m2: float, espesor_m: float | None = None):
@@ -83,5 +90,31 @@ def calcular_materiales(obra_tipo: str, area_m2: float, espesor_m: float | None 
              "unidad": "bulto 25kg", "nota": "1 bulto rinde ~5 m²"},
             {"nombre_busqueda": "boquilla fragua", "cantidad": fragua,
              "unidad": "kg", "nota": "1 kg rinde ~8 m²"},
+        ], notas)
+    if obra_tipo == "concreto":
+        # Piso/placa de concreto 1:2:3. Arena y gravilla a GRANEL (volqueta):
+        # se devuelven en m³ sin precio web, con aviso al proveedor.
+        e = float(espesor_m or 0.08)
+        vol = area * e * 1.10  # +10% desperdicio
+        kg = vol * CONC_CEMENTO_KG_M3
+        bultos = math.ceil(kg / BULTO_KG)
+        arena = _ceil2(vol * CONC_ARENA_M3_M3)
+        gravilla = _ceil2(vol * CONC_GRAVILLA_M3_M3)
+        paneles = math.ceil(area / MALLA_M2_PANEL) if area > 0 else 0
+        notas.append(
+            f"Concreto 1:2:3, espesor {int(round(e * 100))} cm +10% desperdicio. "
+            "Arena y gravilla se piden a granel (volqueta)."
+        )
+        return ([
+            {"nombre_busqueda": "cemento gris", "cantidad": float(bultos),
+             "unidad": "bulto x 50kg",
+             "nota": f"{int(round(kg))} kg para {round(vol, 2)} m³ de concreto"},
+            {"nombre_busqueda": "arena lavada", "cantidad": arena,
+             "unidad": "m³", "nota": "A granel (volqueta)", "granel": True},
+            {"nombre_busqueda": "gravilla", "cantidad": gravilla,
+             "unidad": "m³", "nota": "Piedra/granzón a granel (volqueta)",
+             "granel": True},
+            {"nombre_busqueda": "malla electrosoldada", "cantidad": float(paneles),
+             "unidad": "panel", "nota": "Panel 6 x 2.35 m para refuerzo"},
         ], notas)
     return ([], notas)
