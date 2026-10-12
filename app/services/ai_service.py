@@ -28,6 +28,9 @@ Reglas de cálculo (Colombia):
 - Piso cerámico: m² + 10% por cortes y desperdicio; pegante 1 bulto x 25 kg
   rinde ~5 m²; fragua (boquilla) 1 kg rinde ~8 m².
 - Friso/pañete: 1 bulto de cemento rinde ~3 m² a 1 cm de espesor.
+- "Plantilla" en Colombia = capa de mortero de nivelación/limpieza (NO cerámica
+  salvo que la pidan): materiales cemento + arena lavada; mano de obra del
+  tabulador con query "alistado" o "contrapiso".
 - Redondea cantidades hacia arriba a valores comprables (medios bultos, m³ a 0.25).
 - "nombre_busqueda" debe ser corto (1-3 palabras) para buscar en tienda:
   ej "bloque 4", "cemento gris", "arena lavada", "pintura vinilo".
@@ -91,7 +94,10 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
         "contents": [{"parts": [{"text": descripcion.strip()[:2000]}]}],
         "generationConfig": {
             "temperature": 0.2,
-            "maxOutputTokens": 1500,
+            # El razonamiento interno consume del presupuesto de salida:
+            # techo alto + pensamiento limitado para que el JSON salga completo
+            "maxOutputTokens": 4096,
+            "thinkingConfig": {"thinkingBudget": 1024},
             "responseMimeType": "application/json",
         },
     }
@@ -99,11 +105,14 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
         "x-goog-api-key": api_key,
         "Content-Type": "application/json",
     }
-    timeout = httpx.Timeout(45.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(
-            GEMINI_URL.format(model=model), json=payload, headers=headers
-        )
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    ultimo_error = ""
+    # 2 intentos: a veces el modelo corta o ensucia el JSON
+    for intento in range(2):
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                GEMINI_URL.format(model=model), json=payload, headers=headers
+            )
         if r.status_code in (400, 403):
             body = r.text[:300].lower()
             if "api key" in body or "api_key" in body or "key" in body:
@@ -116,22 +125,23 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
         if r.status_code == 429:
             raise ValueError("Cuota de Gemini agotada, intenta en un minuto")
         r.raise_for_status()
-        data = r.json()
-    try:
-        parts = data["candidates"][0]["content"]["parts"]
-        content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
-    except (KeyError, IndexError, TypeError):
-        # La IA puede bloquear por seguridad; informar sin romper
         try:
-            reason = data.get("promptFeedback", {}).get("blockReason", "")
-        except Exception:
-            reason = ""
-        if reason:
-            raise ValueError("La IA bloqueó la descripción, reformúlala")
-        raise ValueError("Respuesta inesperada del modelo")
-    if not content.strip():
-        raise ValueError("El modelo devolvió vacío, intenta de nuevo")
-    return _extract_json(content)
+            data = r.json()
+            parts = data["candidates"][0]["content"]["parts"]
+            content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+            if not content.strip():
+                raise ValueError("vacío")
+            parsed = _extract_json(content)
+            # Validar estructura mínima antes de aceptar
+            if not isinstance(parsed, dict) or "materiales" not in parsed:
+                raise ValueError("incompleto")
+            return parsed
+        except ValueError as e:
+            ultimo_error = str(e)
+            print(f"[AI] intento {intento + 1} respuesta inválida: {ultimo_error[:120]}")
+            continue
+    # La IA puede bloquear por seguridad; informar sin romper
+    raise ValueError("La IA no devolvió un análisis válido, intenta de nuevo")
 
 
 # Palabras que delatan productos que NO son de construcción
@@ -147,6 +157,11 @@ EXCLUIR_CATEGORIA = (
     "juguete", "juego", "didact", "infantil", "bebé", "bebe", "mascota",
     "fiesta", "disfraz", "deporte", "libro", "música", "musica", "hogar deco",
 )
+# Empaques múltiples ("Set x 12", "Pack x 6"): el precio es del paquete y
+# rompe el cálculo por unidad. Se aceptan solo si no hay otra opción.
+# (No confundir con medidas: "x 6m", "60x60" sí son válidas.)
+import re as _re
+PACK_RE = _re.compile(r"\b(set|pack|caja|combo|kit)\s*x\b", re.IGNORECASE)
 
 
 def _elegir_producto(products: List[Dict[str, Any]], query: str) -> Dict[str, Any]:
@@ -176,15 +191,17 @@ def _elegir_producto(products: List[Dict[str, Any]], query: str) -> Dict[str, An
             return False
         return True
 
-    # 1) Coincidencia exacta en categoría real de construcción
+    # 1) Coincidencia exacta en categoría real de construcción (sin empaques)
     for p in products:
-        if _pasa(p, estricto=True) and _categoria_real(p):
+        if _pasa(p, estricto=True) and _categoria_real(p) \
+                and not PACK_RE.search(str(p.get("nombre", ""))):
             return p
-    # 2) Coincidencia exacta en cualquier lado
+    # 2) Coincidencia exacta en cualquier lado (sin empaques)
     for p in products:
-        if _pasa(p, estricto=True):
+        if _pasa(p, estricto=True) \
+                and not PACK_RE.search(str(p.get("nombre", ""))):
             return p
-    # 3) Respaldo: primer producto con precio que no sea juguete
+    # 3) Respaldo: primer producto con precio que no sea juguete (acepta packs)
     for p in products:
         if _pasa(p, estricto=False):
             return p
