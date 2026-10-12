@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_pass: str = ""
     ai_api_key: str = ""
-    ai_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    ai_model: str = "gemini-3-flash-preview"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

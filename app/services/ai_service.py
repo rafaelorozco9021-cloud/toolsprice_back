@@ -1,6 +1,7 @@
 """Agente IA que analiza la descripción de una obra y la convierte en
 materiales + mano de obra con precios reales.
 
+Proveedor: Google AI Studio (Gemini) vía generateContent.
 Flujo: descripción -> modelo (JSON estricto) -> Homecenter (precios reales)
 -> tabulador (precios mano de obra) -> presupuesto listo para el carrito.
 """
@@ -51,8 +52,16 @@ Formato EXACTO de respuesta (JSON):
   ]
 }"""
 
-DEFAULT_MODEL = "nvidia/nvidia/nemotron-3-super-120b-a12b"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "gemini-3-flash-preview"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def _model_id() -> str:
+    # Acepta "gemini-3-flash-preview" o "gemini/gemini-3-flash-preview"
+    model = (settings.ai_model or DEFAULT_MODEL).strip()
+    if "/" in model:
+        model = model.split("/")[-1]
+    return model or DEFAULT_MODEL
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -76,38 +85,52 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
     api_key = (settings.ai_api_key or "").strip()
     if not api_key:
         raise ValueError("AI_API_KEY no configurada en el servidor")
-    model = (settings.ai_model or DEFAULT_MODEL).strip()
+    model = _model_id()
     payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": descripcion.strip()[:2000]},
-        ],
-        "temperature": 0.2,
-        "max_tokens": 1500,
-        "response_format": {"type": "json_object"},
+        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"parts": [{"text": descripcion.strip()[:2000]}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1500,
+            "responseMimeType": "application/json",
+        },
     }
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "x-goog-api-key": api_key,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://toolsprice.co",
-        "X-Title": "ToolsPrice",
     }
     timeout = httpx.Timeout(45.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(OPENROUTER_URL, json=payload, headers=headers)
-        if r.status_code == 401:
-            raise ValueError("API key del modelo inválida o sin saldo")
-        if r.status_code == 402:
-            raise ValueError("La cuenta del modelo no tiene saldo. Recarga en openrouter.ai")
+        r = await client.post(
+            GEMINI_URL.format(model=model), json=payload, headers=headers
+        )
+        if r.status_code in (400, 403):
+            body = r.text[:300].lower()
+            if "api key" in body or "api_key" in body or "key" in body:
+                raise ValueError("API key de Gemini inválida o sin permisos")
+            if "not found" in body or "not supported" in body:
+                raise ValueError(f"Modelo '{model}' no disponible en tu cuenta")
+            raise ValueError("La IA rechazó la petición, intenta de nuevo")
+        if r.status_code == 404:
+            raise ValueError(f"Modelo '{model}' no encontrado")
         if r.status_code == 429:
-            raise ValueError("Límite del modelo alcanzado, intenta en un minuto")
+            raise ValueError("Cuota de Gemini agotada, intenta en un minuto")
         r.raise_for_status()
         data = r.json()
     try:
-        content = data["choices"][0]["message"]["content"]
+        parts = data["candidates"][0]["content"]["parts"]
+        content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
     except (KeyError, IndexError, TypeError):
+        # La IA puede bloquear por seguridad; informar sin romper
+        try:
+            reason = data.get("promptFeedback", {}).get("blockReason", "")
+        except Exception:
+            reason = ""
+        if reason:
+            raise ValueError("La IA bloqueó la descripción, reformúlala")
         raise ValueError("Respuesta inesperada del modelo")
+    if not content.strip():
+        raise ValueError("El modelo devolvió vacío, intenta de nuevo")
     return _extract_json(content)
 
 
