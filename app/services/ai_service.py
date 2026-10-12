@@ -7,6 +7,7 @@ Flujo: descripción -> modelo (JSON estricto) -> Homecenter (precios reales)
 """
 import asyncio
 import json
+import math
 import re
 from typing import Any, Dict, List
 
@@ -144,8 +145,47 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
     raise ValueError("La IA no devolvió un análisis válido, intenta de nuevo")
 
 
-# Palabras que delatan productos que NO son de construcción
-# (el buscador a veces devuelve juguetes, juegos, etc.)
+# Densidad aparente (kg/m³) para convertir m³ a bultos cuando el producto
+# se vende empacado. Ej: 4.16 m³ de arena ≈ 156 bultos de 40 kg.
+DENSIDAD_KG_M3 = (
+    ("grava", 1600.0), ("gravilla", 1600.0), ("triturado", 1600.0),
+    ("piedra", 1600.0), ("recebo", 1700.0), ("balastro", 1700.0),
+    ("arena", 1500.0),
+)
+PACK_KG_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*kg", re.IGNORECASE)
+
+
+def _a_bultos(m: Dict[str, Any]) -> Dict[str, Any]:
+    """Si la cantidad viene en m³ pero el producto se vende empacado (bulto),
+    convierte a bultos para que cantidad × precio sea correcto."""
+    if m.get("unidad") not in ("m³", "m3") or not m.get("encontrado"):
+        return m
+    nombre = str(m.get("nombre", ""))
+    if not any(k in nombre.lower() for k in ("kg", "bulto", "bolsa", "saco")):
+        return m
+    mm = PACK_KG_RE.search(nombre)
+    if not mm:
+        return m
+    pack_kg = float(mm.group(1).replace(",", "."))
+    if pack_kg <= 0:
+        return m
+    q = str(m.get("nombre_busqueda", "")).lower()
+    dens = 1500.0
+    for kw, d in DENSIDAD_KG_M3:
+        if kw in q:
+            dens = d
+            break
+    m3 = float(m.get("cantidad", 0) or 0)
+    bultos = math.ceil(m3 * dens / pack_kg)
+    m = dict(m)
+    pack_txt = str(int(pack_kg) if pack_kg == int(pack_kg) else pack_kg)
+    m["cantidad"] = float(bultos)
+    m["unidad"] = f"bulto {pack_txt}kg"
+    m["nota"] = (f"{m3} m³ ≈ {bultos} bultos de {pack_txt} kg. "
+                 "En obra suele pedirse por m³ (volqueta): verifica ese precio.")
+    m["subtotal"] = round(float(m.get("precio", 0) or 0) * bultos, 2)
+    m["aviso_granel"] = True
+    return m
 EXCLUIR_NOMBRE = (
     "juguete", "juego", "armatodo", "lego", "infantil", "niño", "niña",
     "bebé", "bebe", "mascota", "perro", "gato", "disfraz", "fiesta",
@@ -291,7 +331,8 @@ async def analizar_obra(descripcion: str, tax_rate: float = 0.16) -> Dict[str, A
             "subtotal": round(precio * cantidad, 2),
         }
 
-    materiales = await asyncio.gather(*[_mat(m) for m in materiales_ai[:12]])
+    materiales = [_a_bultos(m) for m in
+                  await asyncio.gather(*[_mat(m) for m in materiales_ai[:12]])]
 
     mano = []
     for t in mano_ai[:8]:
@@ -322,17 +363,15 @@ async def analizar_obra(descripcion: str, tax_rate: float = 0.16) -> Dict[str, A
     advertencias = []
     advertencias.extend(tabla_notas)
     # La arena/grava se calcula en m³ pero en Homecenter se vende por bulto:
-    # avisar para que el maestro la pida por volqueta con su proveedor
+    # ya viene convertida a bultos; avisar que por volqueta sale más barata
     for m in materiales:
-        if m["unidad"] in ("m³", "m3") and m["encontrado"]:
-            nom = str(m["nombre"]).lower()
-            if any(k in nom for k in ("kg", "bulto", "bolsa", "saco", "40kg", "40 kg")):
-                advertencias.append(
-                    f"OJO con '{m['nombre_busqueda']}': la necesitas en m³ pero "
-                    "Homecenter la vende por bulto. En obra se pide por m³ "
-                    "(volqueta) con el proveedor: verifica ese precio."
-                )
-                break
+        if m.get("aviso_granel"):
+            advertencias.append(
+                f"OJO con '{m['nombre_busqueda']}': se cotizó por bulto "
+                f"({int(m['cantidad'])} bultos). En obra suele pedirse por m³ "
+                "(volqueta) con el proveedor: verifica ese precio."
+            )
+            break
     sin_precio = [m["nombre_busqueda"] for m in materiales if not m["encontrado"]]
     if sin_precio:
         advertencias.append(
