@@ -69,6 +69,8 @@ Formato EXACTO de respuesta (JSON):
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Si el modelo configurado no existe o la cuenta no tiene acceso probamos estos
+FALLBACK_MODELS = ("gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite")
 
 
 def _model_id() -> str:
@@ -96,64 +98,99 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(text[start:end + 1])
 
 
+def _gemini_error(r) -> str:
+    """Extrae el mensaje de error legible que devuelve la API de Google."""
+    try:
+        e = r.json().get("error", {})
+        msg = e.get("message", "")
+        status = e.get("status", "")
+        if msg:
+            return f"{status}: {msg}" if status else msg
+    except Exception:
+        pass
+    return (r.text or "")[:300]
+
+
 async def _call_model(descripcion: str) -> Dict[str, Any]:
     api_key = (settings.ai_api_key or "").strip()
     if not api_key:
         raise ValueError("AI_API_KEY no configurada en el servidor")
-    model = _model_id()
-    payload = {
-        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "contents": [{"parts": [{"text": descripcion.strip()[:2000]}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            # El razonamiento interno consume del presupuesto de salida:
-            # techo alto + pensamiento limitado para que el JSON salga completo
-            "maxOutputTokens": 4096,
-            "thinkingConfig": {"thinkingBudget": 1024},
-            "responseMimeType": "application/json",
-        },
-    }
-    headers = {
-        "x-goog-api-key": api_key,
-        "Content-Type": "application/json",
-    }
     timeout = httpx.Timeout(60.0, connect=10.0)
+    # candidato 1: el modelo configurado; luego los fallbacks si no existe/acceso
+    candidatos = [_model_id()]
+    for fb in FALLBACK_MODELS:
+        if fb not in candidatos:
+            candidatos.append(fb)
     ultimo_error = ""
-    # 2 intentos: a veces el modelo corta o ensucia el JSON
-    for intento in range(2):
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(
-                GEMINI_URL.format(model=model), json=payload, headers=headers
-            )
-        if r.status_code in (400, 403):
-            body = r.text[:300].lower()
-            if "api key" in body or "api_key" in body or "key" in body:
-                raise ValueError("API key de Gemini inválida o sin permisos")
-            if "not found" in body or "not supported" in body:
-                raise ValueError(f"Modelo '{model}' no disponible en tu cuenta")
-            raise ValueError("La IA rechazó la petición, intenta de nuevo")
-        if r.status_code == 404:
-            raise ValueError(f"Modelo '{model}' no encontrado")
-        if r.status_code == 429:
-            raise ValueError("Cuota de Gemini agotada, intenta en un minuto")
-        r.raise_for_status()
-        try:
-            data = r.json()
-            parts = data["candidates"][0]["content"]["parts"]
-            content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
-            if not content.strip():
-                raise ValueError("vacío")
-            parsed = _extract_json(content)
-            # Validar estructura mínima antes de aceptar
-            if not isinstance(parsed, dict) or "materiales" not in parsed:
-                raise ValueError("incompleto")
-            return parsed
-        except ValueError as e:
-            ultimo_error = str(e)
-            print(f"[AI] intento {intento + 1} respuesta inválida: {ultimo_error[:120]}")
-            continue
+    for model in candidatos:
+        payload = {
+            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": descripcion.strip()[:2000]}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                # El razonamiento interno consume del presupuesto de salida:
+                # techo alto + pensamiento limitado para que el JSON salga completo
+                "maxOutputTokens": 4096,
+                "thinkingConfig": {"thinkingBudget": 1024},
+                "responseMimeType": "application/json",
+            },
+        }
+        headers = {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+        # 2 intentos por modelo: a veces el modelo corta o ensucia el JSON
+        for intento in range(2):
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(
+                    GEMINI_URL.format(model=model), json=payload, headers=headers
+                )
+            if r.status_code in (400, 403):
+                detalle = _gemini_error(r)
+                low = detalle.lower()
+                print(f"[AI] HTTP {r.status_code} con modelo {model}: {detalle[:500]}")
+                if "api key" in low or "api_key_invalid" in low:
+                    raise ValueError("API key de Gemini inválida o sin permisos")
+                if "permission" in low or "unauthorized" in low or "denied" in low:
+                    raise ValueError("API key de Gemini sin permiso para este recurso")
+                if "not found" in low or "not supported" in low or "isn't available" in low:
+                    # siguiente modelo del fallback
+                    ultimo_error = f"modelo {model} no disponible"
+                    break
+                if "billing" in low or "quota" in low or "exceeded" in low:
+                    raise ValueError("Cuota/plan de Gemini agotado para tu API key, revisa el plan de AI Studio")
+                raise ValueError(
+                    f"La IA rechazó la petición (HTTP {r.status_code}): {detalle[:220]}"
+                )
+            if r.status_code == 404:
+                print(f"[AI] HTTP 404 con modelo {model}: {_gemini_error(r)[:300]}")
+                ultimo_error = f"modelo {model} no encontrado (404)"
+                break
+            if r.status_code == 429:
+                detalle = _gemini_error(r)
+                print(f"[AI] HTTP 429 (rate limit) con modelo {model}: {detalle[:300]}")
+                ultimo_error = "cuota rate limit"
+                # rate limit sí vale la pena reintentar tras 1s
+                await asyncio.sleep(1.2)
+                continue
+            r.raise_for_status()
+            try:
+                data = r.json()
+                parts = data["candidates"][0]["content"]["parts"]
+                content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+                if not content.strip():
+                    raise ValueError("vacío")
+                parsed = _extract_json(content)
+                # Validar estructura mínima antes de aceptar
+                if not isinstance(parsed, dict) or "materiales" not in parsed:
+                    raise ValueError("incompleto")
+                return parsed
+            except ValueError as e:
+                ultimo_error = str(e)
+                print(f"[AI] intento {intento + 1} modelo {model} respuesta inválida: {ultimo_error[:120]}")
+                continue
     # La IA puede bloquear por seguridad; informar sin romper
-    raise ValueError("La IA no devolvió un análisis válido, intenta de nuevo")
+    raise ValueError(f"La IA no devolvió un análisis válido, intenta de nuevo ({ultimo_error[:120]})")
 
 
 # Bultos de 40 kg por m³ según práctica de obra (regla del maestro).
