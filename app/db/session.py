@@ -69,6 +69,23 @@ async def init_db():
             ))
         except Exception as e:
             print(f"Migration warning: {e}")
+        # Empresa del usuario (para PDF personalizado)
+        try:
+            from sqlalchemy import text
+            await conn.execute(text(
+                "ALTER TABLE toolsprice_users "
+                "ADD COLUMN IF NOT EXISTS has_company BOOLEAN DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE toolsprice_users "
+                "ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE toolsprice_users "
+                "ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)"
+            ))
+        except Exception as e:
+            print(f"Company fields migration warning: {e}")
         # Catálogo Homecenter: índice trigram para búsqueda fuzzy rápida (< 200ms)
         try:
             from sqlalchemy import text

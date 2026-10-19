@@ -194,18 +194,29 @@ async def export_pdf(
 
     items = budget.__dict__.get("items", [])
 
-    # Nombre del usuario para la firma del PDF
+    # Nombre del usuario y datos de empresa para el PDF
     preparador_name = None
+    brand_name = None
+    firmante_name = None
     try:
         from app.db.models.models import User
         r = await db.execute(select(User).filter(User.id == budget.user_id))
         owner = r.scalars().first()
         if owner and getattr(owner, "name", None):
             preparador_name = owner.name
+            if getattr(owner, "has_company", False) and getattr(owner, "company_name", None):
+                # Empresa en el encabezado; dueño/representante en la firma
+                brand_name = owner.company_name
+                firmante_name = getattr(owner, "owner_name", None) or owner.name
     except Exception:
         preparador_name = None
 
-    pdf_bytes = generate_budget_pdf(budget, items, preparador_name=preparador_name)
+    pdf_bytes = generate_budget_pdf(
+        budget, items,
+        preparador_name=preparador_name,
+        brand_name=brand_name,
+        firmante_name=firmante_name,
+    )
 
     return Response(
         content=pdf_bytes,

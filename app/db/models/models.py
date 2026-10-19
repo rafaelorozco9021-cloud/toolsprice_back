@@ -15,6 +15,11 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     email_verified = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    # Empresa (opcional): si tiene, el PDF muestra la empresa en el encabezado
+    # y al dueño/representante en la firma; si no, se usa ToolsPrice
+    has_company = Column(Boolean, default=False)
+    company_name = Column(String(255))
+    owner_name = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

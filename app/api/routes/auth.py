@@ -44,11 +44,19 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
             detail="Email already registered"
         )
 
+    has_company = bool(user.has_company)
+    company_name = (user.company_name or "").strip() if has_company else ""
+    owner_name = (user.owner_name or "").strip() if has_company else ""
+
     db_user = User(
         name=name,
         email=user.email,
         password_hash=get_password_hash(user.password),
         email_verified=True,
+        has_company=has_company and bool(company_name),
+        company_name=company_name or None,
+        # si no escribe dueño/representante, por defecto es el propio usuario
+        owner_name=owner_name or name,
     )
     db.add(db_user)
     await db.commit()
@@ -58,7 +66,10 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         id=db_user.id,
         name=db_user.name,
         email=db_user.email,
-        created_at=db_user.created_at.isoformat()
+        created_at=db_user.created_at.isoformat(),
+        has_company=db_user.has_company,
+        company_name=db_user.company_name,
+        owner_name=db_user.owner_name,
     )
 
 
@@ -119,6 +130,9 @@ async def get_me(
         name=db_user.name,
         email=db_user.email,
         created_at=db_user.created_at.isoformat() if db_user.created_at else "",
+        has_company=bool(getattr(db_user, "has_company", False)),
+        company_name=getattr(db_user, "company_name", None),
+        owner_name=getattr(db_user, "owner_name", None),
     )
 
 

@@ -7,6 +7,11 @@ class UserCreate(BaseModel):
     email: str
     password: str
     password_confirm: str
+    # Empresa (opcional): si tiene, el PDF usa la empresa como marca
+    # y el nombre del dueño/representante en la firma
+    has_company: bool = False
+    company_name: Optional[str] = None
+    owner_name: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -14,6 +19,9 @@ class UserResponse(BaseModel):
     name: str
     email: str
     created_at: str
+    has_company: bool = False
+    company_name: Optional[str] = None
+    owner_name: Optional[str] = None
 
 
 class Token(BaseModel):

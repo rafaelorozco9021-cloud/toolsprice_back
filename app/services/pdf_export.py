@@ -22,7 +22,15 @@ TYPE_LABELS = {
 def _fmt_cop(v: float) -> str:
     return f"${v:,.0f}".replace(",", ".") + " COP"
 
-def generate_budget_pdf(budget, items: list[dict], preparador_name: str | None = None) -> bytes:
+def generate_budget_pdf(
+    budget,
+    items: list[dict],
+    preparador_name: str | None = None,
+    brand_name: str | None = None,
+    firmante_name: str | None = None,
+) -> bytes:
+    # Marca del PDF: empresa del usuario si tiene, si no ToolsPrice (nunca en blanco)
+    brand = (brand_name or "").strip() or "ToolsPrice"
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -50,7 +58,7 @@ def generate_budget_pdf(budget, items: list[dict], preparador_name: str | None =
         spaceAfter=2,
     )
     # Tracking effect: add letter spacing via HTML? Use simple
-    elements.append(Paragraph("ToolsPrice", brand_style))
+    elements.append(Paragraph(brand, brand_style))
 
     # Subtitulo Presupuesto de [Tipo]
     btype = getattr(budget, 'budget_type', 'construccion') or 'construccion'
@@ -215,15 +223,17 @@ def generate_budget_pdf(budget, items: list[dict], preparador_name: str | None =
     # Firma estilo script
     sig_style = ParagraphStyle('Sig', parent=styles['Normal'], fontSize=18, leading=20, textColor=colors.HexColor('#1F2937'), alignment=TA_CENTER, fontName='Helvetica-Oblique')
     # Usamos texto cursivo como firma digital
-    if preparador_name:
-        firma_esc = preparador_name.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:80]
+    # Con empresa: firma el dueño/representante; sin empresa: el usuario (o ToolsPrice)
+    display_sig = (firmante_name or preparador_name or "")
+    if display_sig:
+        firma_esc = display_sig.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")[:80]
         elements.append(Paragraph(f"<font color=\"#4F46E5\">{firma_esc}</font>", sig_style))
         sig_sub = ParagraphStyle('SigSub', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=2)
-        elements.append(Paragraph(f"Firma del responsable · Documento generado electrónicamente por <b>ToolsPrice</b>", sig_sub))
+        elements.append(Paragraph(f"Firma del responsable · Documento generado electrónicamente por <b>{brand}</b>", sig_sub))
     else:
-        elements.append(Paragraph("<font color=\"#4F46E5\">ToolsPrice</font> · Firma Digital", sig_style))
+        elements.append(Paragraph(f"<font color=\"#4F46E5\">{brand}</font> · Firma Digital", sig_style))
         sig_sub = ParagraphStyle('SigSub', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#6B7280'), alignment=TA_CENTER, spaceAfter=2)
-        elements.append(Paragraph(f"Documento generado electrónicamente por <b>ToolsPrice</b>", sig_sub))
+        elements.append(Paragraph(f"Documento generado electrónicamente por <b>{brand}</b>", sig_sub))
     elements.append(Paragraph(f"ID: {bid_short} · {datetime.utcnow().strftime('%d/%m/%Y %H:%M UTC')} · Verificación: toolsprice.homecenter/{bid_short.lower()}", sig_sub))
     elements.append(Paragraph("Este presupuesto tiene validez de 7 días y no constituye reserva de inventario.", ParagraphStyle('SigNote', parent=sig_sub, fontSize=7, textColor=colors.HexColor('#9CA3AF'), spaceBefore=6)))
 
