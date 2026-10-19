@@ -149,14 +149,27 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
                 detalle = _gemini_error(r)
                 low = detalle.lower()
                 print(f"[AI] HTTP {r.status_code} con modelo {model}: {detalle[:500]}")
+                # 1) Modelo no disponible para esta key: probar el siguiente.
+                #    Ej: "Permission denied: model X is not found for API version
+                #    v1beta, or you don't have permission to access it" (403)
+                if "not found" in low or "not supported" in low or "isn't available" in low:
+                    ultimo_error = f"modelo {model} no disponible para esta key"
+                    break
                 if "api key" in low or "api_key_invalid" in low:
                     raise ValueError("API key de Gemini inválida o sin permisos")
+                # 2) La API Gemini no está habilitada para el proyecto de la key
+                if "service_disabled" in low or "has not been used in project" in low or "is disabled" in low:
+                    raise ValueError(
+                        "La API Gemini no está habilitada en el proyecto de tu API key. "
+                        "Crea una key nueva en aistudio.google.com/apikey y ponla en AI_API_KEY"
+                    )
+                # 3) Permiso real de la key (KeyRestrictions, referer, etc.)
                 if "permission" in low or "unauthorized" in low or "denied" in low:
-                    raise ValueError("API key de Gemini sin permiso para este recurso")
-                if "not found" in low or "not supported" in low or "isn't available" in low:
-                    # siguiente modelo del fallback
-                    ultimo_error = f"modelo {model} no disponible"
-                    break
+                    raise ValueError(
+                        "API key de Gemini sin permiso para este recurso. Verifica en "
+                        "Google Cloud Console las restricciones de la key y que la API "
+                        "'Generative Language API' esté habilitada"
+                    )
                 if "billing" in low or "quota" in low or "exceeded" in low:
                     raise ValueError("Cuota/plan de Gemini agotado para tu API key, revisa el plan de AI Studio")
                 raise ValueError(
@@ -189,7 +202,12 @@ async def _call_model(descripcion: str) -> Dict[str, Any]:
                 ultimo_error = str(e)
                 print(f"[AI] intento {intento + 1} modelo {model} respuesta inválida: {ultimo_error[:120]}")
                 continue
-    # La IA puede bloquear por seguridad; informar sin romper
+    # La IA puede bloquear por seguridad, o la key no tiene acceso a ningún modelo
+    if "key" in ultimo_error or "modelo" in ultimo_error:
+        raise ValueError(
+            "Ningún modelo Gemini respondió con esta API key. Crea una key nueva "
+            "en aistudio.google.com/apikey y actualízala en AI_API_KEY del servidor"
+        )
     raise ValueError(f"La IA no devolvió un análisis válido, intenta de nuevo ({ultimo_error[:120]})")
 
 
