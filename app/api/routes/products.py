@@ -53,25 +53,26 @@ async def search_products_endpoint(
     db: AsyncSession = Depends(get_db)
 ):
     asyncio.create_task(_log_search(request, query))
-    result = await search_products(db, query, store, min_price, max_price, page, limit)
-    # Homecenter único scraper — multicategoría: busca en TODAS las categorías (construcción, soldadura, pintura, plomería, herramientas)
-    # Eliminamos filtro por categoría: siempre busca en todas para que "tubo pvc" encuentre aunque esté en plomería
-    if not result["products"] or True:  # siempre complementar con scraping multicategoría
-        from app.scrapers.homecenter import HomecenterScraper
-        scraper = HomecenterScraper()
-        mocked = await scraper.search_all_categories(query)
-        if not mocked:
-            mocked = await scraper.search(query)
-        if min_price is not None:
-            mocked = [m for m in mocked if m["precio"] >= min_price]
-        if max_price is not None:
-            mocked = [m for m in mocked if m["precio"] <= max_price]
-        # si DB tenía resultados, mezclarlos con los scrapeados (prioriza scrapeados que tienen precio real)
-        if mocked:
-            return {"products": mocked[:24], "total": len(mocked), "page": 1}
+    # 1) Búsqueda desde el catálogo pre-scrapeado (rápida, < 200ms)
+    try:
+        from app.services.catalog_search import search_catalog
+        result = await search_catalog(db, query, min_price, max_price, page, limit)
+    except Exception as e:
+        print(f"[search] catálogo no disponible: {e}")
+        result = {"products": [], "total": 0, "page": page}
     if result["products"]:
         return result
-    return {"products": [], "total": 0, "page": 1}
+    # 2) Fallback: scraping en vivo (catálogo vacío, sin coincidencias o error DB)
+    from app.scrapers.homecenter import HomecenterScraper
+    scraper = HomecenterScraper()
+    mocked = await scraper.search_all_categories(query)
+    if not mocked:
+        mocked = await scraper.search(query)
+    if min_price is not None:
+        mocked = [m for m in mocked if m["precio"] >= min_price]
+    if max_price is not None:
+        mocked = [m for m in mocked if m["precio"] <= max_price]
+    return {"products": mocked[:24], "total": len(mocked), "page": 1}
 
 
 @router.get("/search/live")

@@ -102,7 +102,7 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
                     return r.text
             return await asyncio.gather(*[_get(u) for u in urls], return_exceptions=True)
 
-    def _parse_ldjson_search(self, html: str, categoria_hint: str = "Materiales de Construcción") -> List[Dict[str, Any]]:
+    def _parse_ldjson_search(self, html: str, categoria_hint: str = "Materiales de Construcción", limit: int = 30) -> List[Dict[str, Any]]:
         soup = BeautifulSoup(html, "html.parser")
         # 1) Intentar extraer de __NEXT_DATA__ searchData.results (búsqueda por texto Ntt) — más preciso para "tubo pvc"
         products: List[Dict[str, Any]] = []
@@ -113,7 +113,7 @@ class HomecenterScraper(BaseScraper, AsyncScraperMixin):
                 search_data = jdata.get("props", {}).get("pageProps", {}).get("searchProps", {}).get("searchData", {})
                 results = search_data.get("results") or []
                 if isinstance(results, list) and results:
-                    for item in results[:30]:
+                    for item in results[:limit]:
                         name = item.get("displayName") or item.get("name") or ""
                         brand = item.get("brand") or ""
                         sku = str(item.get("productId") or item.get("skuId") or "")

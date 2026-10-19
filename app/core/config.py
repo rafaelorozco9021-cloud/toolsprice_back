@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     smtp_pass: str = ""
     ai_api_key: str = ""
     ai_model: str = "gemini-3-flash-preview"
+    enable_nightly_crawl: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

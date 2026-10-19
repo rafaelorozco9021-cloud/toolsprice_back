@@ -44,6 +44,34 @@ class Product(Base):
     user = relationship("User", back_populates="products")
 
 
+class CatalogProduct(Base):
+    """Catálogo pre-scrapeado de Homecenter.
+
+    Se llena con el crawl nocturno (00:00) y sirve las búsquedas desde DB
+    con tiempos de respuesta < 200ms. sku es la clave de upsert.
+    Separado de toolsprice_products (mock/user) para no romper flujos existentes.
+    """
+    __tablename__ = "toolsprice_catalog_products"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    sku = Column(String(50), unique=True, nullable=False, index=True)
+    nombre = Column(String(500), nullable=False)
+    marca = Column(String(150))
+    categoria = Column(String(255), index=True)
+    categoria_url = Column(String(1000))
+    precio = Column(Float, nullable=False, default=0, index=True)
+    moneda = Column(String(10), default="COP")
+    unidad_medida = Column(String(100))
+    imagen_url = Column(String(1000))
+    url_producto = Column(String(1000), index=True)
+    disponibilidad = Column(Boolean, default=True)
+    caracteristicas = Column(Text)
+    fuente = Column(String(50), default="homecenter")
+    last_scraped_at = Column(DateTime, default=datetime.utcnow)
+    fecha_actualizacion = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Budget(Base):
     __tablename__ = "toolsprice_budgets"
 

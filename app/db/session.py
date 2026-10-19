@@ -69,6 +69,21 @@ async def init_db():
             ))
         except Exception as e:
             print(f"Migration warning: {e}")
+        # Catálogo Homecenter: índice trigram para búsqueda fuzzy rápida (< 200ms)
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_catalog_nombre_trgm "
+                "ON toolsprice_catalog_products USING gin (nombre gin_trgm_ops)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_catalog_busqueda_trgm "
+                "ON toolsprice_catalog_products USING gin "
+                "((nombre || ' ' || coalesce(marca,'') || ' ' || coalesce(categoria,'')) gin_trgm_ops)"
+            ))
+        except Exception as e:
+            print(f"Catalog index warning: {e}")
     # seed mock products if empty
     try:
         from app.db.models.models import Product

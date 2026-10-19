@@ -7,6 +7,7 @@ from app.api.routes.budgets import router as budgets_router
 from app.api.routes.labor import router as labor_router
 from app.api.routes.stats import router as stats_router
 from app.api.routes.ai import router as ai_router
+from app.api.routes.catalog import router as catalog_router
 from app.core.config import settings
 from app.db.session import init_db
 
@@ -42,6 +43,7 @@ app.include_router(budgets_router, prefix="/api")
 app.include_router(labor_router, prefix="/api")
 app.include_router(stats_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
+app.include_router(catalog_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -50,6 +52,12 @@ async def startup():
         await init_db()
     except Exception as e:
         print(f"DB init warning: {e}")
+    # worker del crawl nocturno (12:00 AM) — activo con ENABLE_NIGHTLY_CRAWL=1
+    try:
+        from app.core.catalog_scheduler import start_nightly_crawler
+        start_nightly_crawler()
+    except Exception as e:
+        print(f"Scheduler warning: {e}")
 
 
 @app.get("/")
